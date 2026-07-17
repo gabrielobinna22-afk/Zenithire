@@ -1,0 +1,330 @@
+import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+
+const prisma = new PrismaClient();
+
+async function hash(password: string) {
+  return bcrypt.hash(password, 12);
+}
+
+async function main() {
+  console.log('Seeding Zenithire sample data...');
+
+  // --- Taxonomy ---------------------------------------------------------------
+  const skillNames = ['Excel', 'Power BI', 'FP&A', 'Figma', 'UX Research', 'Node.js', 'PostgreSQL', 'AWS', 'Logistics', 'Supply Chain'];
+  const skills = await Promise.all(
+    skillNames.map((name) => prisma.skill.upsert({ where: { name }, create: { name }, update: {} })),
+  );
+
+  const industryNames = ['Financial Services', 'Supply Chain', 'Product & Design', 'Oil & Gas', 'Technology'];
+  const industries = await Promise.all(
+    industryNames.map((name) => prisma.industry.upsert({ where: { name }, create: { name }, update: {} })),
+  );
+
+  const categoryNames = ['Finance', 'Engineering', 'Design', 'Operations'];
+  const categories = await Promise.all(
+    categoryNames.map((name) => prisma.jobCategory.upsert({ where: { name }, create: { name }, update: {} })),
+  );
+
+  // --- Admin --------------------------------------------------------------------
+  await prisma.user.upsert({
+    where: { email: 'admin@zenithire.com' },
+    create: {
+      email: 'admin@zenithire.com',
+      passwordHash: await hash('ChangeMe123!'),
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+    update: {},
+  });
+
+  // --- Employers + companies -----------------------------------------------------
+  const northbridgeOwner = await prisma.user.upsert({
+    where: { email: 'sade@northbridgecapital.com' },
+    create: {
+      email: 'sade@northbridgecapital.com',
+      passwordHash: await hash('Password123!'),
+      role: 'EMPLOYER',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+    update: {},
+  });
+
+  const northbridge = await prisma.company.upsert({
+    where: { slug: 'northbridge-capital' },
+    create: {
+      name: 'Northbridge Capital',
+      slug: 'northbridge-capital',
+      description: 'Mid-size investment firm hiring analysts and operations staff across Lagos and Abuja.',
+      city: 'Lagos',
+      country: 'Nigeria',
+      status: 'VERIFIED',
+      industryTag: 'Financial Services',
+      members: { create: { userId: northbridgeOwner.id, role: 'OWNER' } },
+    },
+    update: {},
+  });
+
+  const arclightOwner = await prisma.user.upsert({
+    where: { email: 'ifeoma@arclightstudio.com' },
+    create: {
+      email: 'ifeoma@arclightstudio.com',
+      passwordHash: await hash('Password123!'),
+      role: 'EMPLOYER',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+    update: {},
+  });
+
+  const arclight = await prisma.company.upsert({
+    where: { slug: 'arclight-studio' },
+    create: {
+      name: 'Arclight Studio',
+      slug: 'arclight-studio',
+      description: 'Remote-first product studio building tools for African fintechs.',
+      city: 'Remote',
+      country: 'Nigeria',
+      status: 'VERIFIED',
+      industryTag: 'Product & Design',
+      members: { create: { userId: arclightOwner.id, role: 'OWNER' } },
+    },
+    update: {},
+  });
+
+  // A company still awaiting admin verification, so the admin dashboard's
+  // "pending" queue isn't empty on a fresh seed.
+  const pendingOwner = await prisma.user.upsert({
+    where: { email: 'founder@newventure.com' },
+    create: {
+      email: 'founder@newventure.com',
+      passwordHash: await hash('Password123!'),
+      role: 'EMPLOYER',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+    update: {},
+  });
+
+  await prisma.company.upsert({
+    where: { slug: 'new-venture-logistics' },
+    create: {
+      name: 'New Venture Logistics',
+      slug: 'new-venture-logistics',
+      description: 'Early-stage logistics startup.',
+      status: 'PENDING',
+      members: { create: { userId: pendingOwner.id, role: 'OWNER' } },
+    },
+    update: {},
+  });
+
+  // --- Jobs -----------------------------------------------------------------------
+  const commercialAnalyst = await prisma.job.create({
+    data: {
+      companyId: northbridge.id,
+      postedById: northbridgeOwner.id,
+      title: 'Commercial Analyst',
+      description: 'Support commercial strategy and financial planning across our portfolio companies.',
+      responsibilities: 'Build financial models. Partner with deal teams. Present to leadership.',
+      requirements: '3+ years in financial analysis. Advanced Excel. FP&A experience preferred.',
+      salaryMin: 450_000,
+      salaryMax: 650_000,
+      salaryCurrency: 'NGN',
+      employmentType: 'FULL_TIME',
+      workMode: 'ON_SITE',
+      city: 'Lagos',
+      country: 'Nigeria',
+      categoryId: categories.find((c) => c.name === 'Finance')?.id,
+      status: 'PUBLISHED',
+      skills: { create: [skills[0], skills[2]].map((s) => ({ skillId: s.id })) },
+    },
+  });
+
+  const backendRole = await prisma.job.create({
+    data: {
+      companyId: northbridge.id,
+      postedById: northbridgeOwner.id,
+      title: 'Backend Engineer (Node.js)',
+      description: 'Build and maintain internal tooling used across the firm.',
+      responsibilities: 'Own services end to end. Review code. Participate in on-call.',
+      requirements: 'Strong Node.js and PostgreSQL experience. AWS familiarity a plus.',
+      salaryMin: 600_000,
+      salaryMax: 900_000,
+      salaryCurrency: 'NGN',
+      employmentType: 'FULL_TIME',
+      workMode: 'ON_SITE',
+      city: 'Abuja',
+      country: 'Nigeria',
+      categoryId: categories.find((c) => c.name === 'Engineering')?.id,
+      status: 'PUBLISHED',
+      skills: { create: [skills[5], skills[6], skills[7]].map((s) => ({ skillId: s.id })) },
+    },
+  });
+
+  const designRole = await prisma.job.create({
+    data: {
+      companyId: arclight.id,
+      postedById: arclightOwner.id,
+      title: 'Senior Product Designer',
+      description: 'Lead product design for our core fintech dashboard product.',
+      responsibilities: 'Own the design system. Run user research. Ship polished UI.',
+      requirements: '5+ years product design. Strong portfolio. Figma fluency.',
+      salaryMin: 2200,
+      salaryMax: 3000,
+      salaryCurrency: 'USD',
+      employmentType: 'CONTRACT',
+      workMode: 'REMOTE',
+      country: 'Nigeria',
+      categoryId: categories.find((c) => c.name === 'Design')?.id,
+      status: 'PUBLISHED',
+      skills: { create: [skills[3], skills[4]].map((s) => ({ skillId: s.id })) },
+    },
+  });
+
+  // --- Candidates -----------------------------------------------------------------
+  const amakaUser = await prisma.user.upsert({
+    where: { email: 'amaka.obi@example.com' },
+    create: {
+      email: 'amaka.obi@example.com',
+      passwordHash: await hash('Password123!'),
+      role: 'CANDIDATE',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+    update: {},
+  });
+
+  const amakaProfile = await prisma.candidateProfile.upsert({
+    where: { userId: amakaUser.id },
+    create: {
+      userId: amakaUser.id,
+      fullName: 'Amaka Obi',
+      headline: 'Financial Analyst · 5 yrs experience',
+      bio: 'Financial analyst with a track record of building models that hold up under scrutiny.',
+      yearsExperience: 5,
+      expectedSalaryMin: 500_000,
+      expectedSalaryMax: 700_000,
+      salaryCurrency: 'NGN',
+      city: 'Lagos',
+      country: 'Nigeria',
+      openToRemote: false,
+      profileCompletion: 75,
+      education: {
+        create: [
+          {
+            institution: 'University of Lagos',
+            degree: 'BSc',
+            fieldOfStudy: 'Economics',
+            startDate: new Date('2015-09-01'),
+            endDate: new Date('2019-07-01'),
+          },
+        ],
+      },
+      workExperience: {
+        create: [
+          {
+            company: 'Stanbic IBTC',
+            title: 'Financial Analyst',
+            description: 'Built monthly forecasting models for the retail banking division.',
+            startDate: new Date('2020-02-01'),
+            isCurrent: true,
+          },
+        ],
+      },
+      skills: { create: [skills[0], skills[1], skills[2]].map((s) => ({ skillId: s.id })) },
+      industries: { create: [industries[0]].map((i) => ({ industryId: i.id })) },
+    },
+    update: {},
+  });
+
+  const tundeUser = await prisma.user.upsert({
+    where: { email: 'tunde.e@example.com' },
+    create: {
+      email: 'tunde.e@example.com',
+      passwordHash: await hash('Password123!'),
+      role: 'CANDIDATE',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+    update: {},
+  });
+
+  const tundeProfile = await prisma.candidateProfile.upsert({
+    where: { userId: tundeUser.id },
+    create: {
+      userId: tundeUser.id,
+      fullName: 'Tunde Eze',
+      headline: 'Product Designer · 3 yrs experience',
+      bio: 'Product designer focused on fintech and financial inclusion products.',
+      yearsExperience: 3,
+      city: 'Remote',
+      country: 'Nigeria',
+      openToRemote: true,
+      profileCompletion: 60,
+      skills: { create: [skills[3], skills[4]].map((s) => ({ skillId: s.id })) },
+      industries: { create: [industries[2]].map((i) => ({ industryId: i.id })) },
+    },
+    update: {},
+  });
+
+  // --- Applications + one accepted interview invitation ---------------------------
+  const application = await prisma.application.upsert({
+    where: { jobId_candidateId: { jobId: commercialAnalyst.id, candidateId: amakaProfile.id } },
+    create: { jobId: commercialAnalyst.id, candidateId: amakaProfile.id, status: 'SHORTLISTED' },
+    update: {},
+  });
+
+  await prisma.application.upsert({
+    where: { jobId_candidateId: { jobId: designRole.id, candidateId: tundeProfile.id } },
+    create: { jobId: designRole.id, candidateId: tundeProfile.id, status: 'SUBMITTED' },
+    update: {},
+  });
+
+  const invitation = await prisma.interviewInvitation.create({
+    data: {
+      applicationId: application.id,
+      candidateId: amakaProfile.id,
+      sentById: northbridgeOwner.id,
+      receivedById: amakaUser.id,
+      message: "We'd love to talk through your FP&A background — are you free this week?",
+      proposedTimes: [new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)],
+      status: 'ACCEPTED',
+      respondedAt: new Date(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  await prisma.conversation.upsert({
+    where: {
+      participantAId_participantBId: { participantAId: northbridgeOwner.id, participantBId: amakaUser.id },
+    },
+    create: {
+      participantAId: northbridgeOwner.id,
+      participantBId: amakaUser.id,
+      invitationId: invitation.id,
+      messages: {
+        create: [
+          { senderId: northbridgeOwner.id, body: 'Great, see you at 10am on Tuesday then.' },
+          { senderId: amakaUser.id, body: 'Sounds good, looking forward to it!' },
+        ],
+      },
+    },
+    update: {},
+  });
+
+  console.log('Seed complete.');
+  console.log('  Admin login:    admin@zenithire.com / ChangeMe123!');
+  console.log('  Employer login: sade@northbridgecapital.com / Password123!');
+  console.log('  Candidate login: amaka.obi@example.com / Password123!');
+}
+
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
