@@ -1,0 +1,34 @@
+# The worker runs the same compiled Nest app as the API, just started with
+# a different entrypoint (main-worker.ts, which bootstraps a
+# NestApplicationContext instead of an HTTP server, and BullMQ picks up
+# jobs from the video-processing queue). It's a separate image from the
+# API's Dockerfile specifically because it needs ffmpeg installed — the
+# API image shouldn't carry that weight for a binary it never calls.
+
+FROM node:20-slim AS build
+WORKDIR /app
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci
+COPY . .
+RUN npx prisma generate
+RUN npm run build
+
+FROM node:20-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+
+# ffmpeg from Debian's repo is usually a version or two behind upstream;
+# pin a newer static build instead if you need a specific ffmpeg feature.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r zenith && useradd -r -g zenith zenith
+
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/prisma ./prisma
+COPY package*.json ./
+
+USER zenith
+CMD ["node", "dist/main-worker.js"]
